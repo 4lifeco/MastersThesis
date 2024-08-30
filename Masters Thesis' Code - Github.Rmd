@@ -1,6 +1,4 @@
 ---
-title: "Masters Thesis' Code"
-description: "About the Relationship between Arms Trafficking and Political Violence in Central and Southern America"
 title: "About the Relationship between Arms Trafficking and Political Violence in Central and Southern America"
 description: "Masters Thesis' Code"
 author: "Mecki Hamed Guerrero"
