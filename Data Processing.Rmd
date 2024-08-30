@@ -1,0 +1,1357 @@
+---
+title: "About the Relationship between Arms Trafficking and Political Violence in Central and Southern America"
+description: "Masters Thesis' Code"
+author: "Mecki Hamed Guerrero"
+date: "2024-07-25"
+output:
+  distill::distill_article:
+    self_contained: false
+    toc: true
+---
+
+```{r}
+
+library(dplyr)
+library(tidyverse)
+library(tidyr)
+library(readxl)
+library(writexl)
+library(openxlsx)
+library(dplyr)
+library(broom)
+library(zoo)
+library(ggplot2)
+library(plm)
+library(MASS)
+library(pscl)
+library(plm)
+library(ResourceSelection)
+library(lmtest)  
+library(aod)
+library(AER)
+
+```
+
+## 1. Limpieza de Datos
+
+### 1.1 Variables Dependientes
+
+#### 1.1.1 Major Arms - SIPRI
+
+```{r}
+
+Volume_of_imports_of_major_arms <- read_excel("import-export-values_1990-2020.xlsx"
+)
+
+Volume_of_imports_of_major_arms <- Volume_of_imports_of_major_arms[-c(1:9), ]
+
+colnames(Volume_of_imports_of_major_arms) <- c("Country", "1990", "1991", "1992",
+"1993", "1994", "1995", "1996", "1997", "1998", "1999", "2000", "2001", "2002",
+"2003", "2004", "2005", "2006", "2007", "2008", "2009", "2010", "2011", "2012",
+"2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020", "1990-2020",
+"Percentage", "Sum total years", "Percentage of total")
+
+# Guyana, Costa Rica, Belize, y Honduras tienen muchos NAs, las elimino
+
+Volume_of_imports_of_major_arms <- Volume_of_imports_of_major_arms |>
+filter(Country %in% c("Argentina", "Bolivia", "Brazil", "Chile", "Colombia",
+"Ecuador", "El Salvador", "Guatemala", "French Guyana", "Mexico", "Nicaragua",
+"Panama", "Paraguay", "Peru", "Uruguay", "Venezuela")) |>
+  arrange((Country))
+
+Volume_of_imports_of_major_arms <- Volume_of_imports_of_major_arms[, -((ncol(Volume_of_imports_of_major_arms)-3):ncol(Volume_of_imports_of_major_arms))]
+
+Volume_of_imports_of_major_arms
+
+```
+
+#### 1.1.2 Small Arms - UNROCA
+
+```{r}
+
+small_arms_unroca <- read_excel("small_arms_unroca.xlsx")
+
+small_arms_unroca <- small_arms_unroca[, -c(2:17)]
+
+small_arms_unroca <- small_arms_unroca |>
+filter(Country %in% c("Argentina", "Bolivia", "Brazil", "Chile", "Colombia",
+"Ecuador", "El Salvador", "Guatemala", "French Guyana", "Mexico", "Nicaragua",
+"Panama", "Paraguay", "Peru", "Uruguay", "Venezuela")) |>
+  arrange((Country))
+
+small_arms_unroca <- small_arms_unroca[, -((ncol(small_arms_unroca)-3):ncol(small_arms_unroca))]
+
+small_arms_unroca
+
+```
+
+### 1.2 Variables Independientes
+
+#### 1.2.1 Political Events - ACLED
+
+```{r}
+
+ACLED_events <- read_excel("ACLED_central_and_south_america_events.xlsx")
+
+paises_de_estudio <- c("Argentina", "Bolivia", "Brazil", "Chile", "Colombia",
+"Ecuador", "El Salvador", "Guatemala", "French Guyana", "Mexico", "Nicaragua",
+"Panama", "Paraguay", "Peru", "Uruguay", "Venezuela")
+
+ACLED_events <- ACLED_events[ACLED_events$country %in% paises_de_estudio, ]
+
+#eliminar peaceful protest
+
+ACLED_events <- ACLED_events |>
+  filter(sub_event_type != "Peaceful protest")
+
+ACLED_events <- ACLED_events %>%
+  group_by(country, year) %>%
+  summarise(conflict_count = n()) %>%
+  ungroup() %>%
+  pivot_wider(names_from = year, values_from = conflict_count, values_fill = 0) |>
+  rename(Country = country)
+
+ACLED_Political_events <- ACLED_events
+
+ACLED_Political_events
+```
+
+#### 1.2.2 Armed Conflicts - UCDP / PRIO
+
+```{r}
+
+UcdpPrioConflict_v24_1 <- read_excel("UcdpPrioConflict_v24_1.xlsx")
+
+conflict_filtrados <- UcdpPrioConflict_v24_1[UcdpPrioConflict_v24_1$location %in% paises_de_estudio, ]
+
+
+conflict_filtrados <- conflict_filtrados[conflict_filtrados$year >= 1990 & conflict_filtrados$year <= 2020, ]
+
+
+conflict_filtrados <- conflict_filtrados %>%
+  group_by(location, year) %>%
+  summarise(conflict_count = n()) %>%
+  ungroup() %>%
+  pivot_wider(names_from = year, values_from = conflict_count, values_fill = 0) |>
+    rename(Country = location) %>%
+  mutate(across(-Country, as.double)) |>
+  arrange(Country)
+
+conflict_filtrados$`2017` <- 0
+
+conflict_filtrados <- conflict_filtrados[, c(names(conflict_filtrados)[1:which(names(conflict_filtrados) == "2016")], "2017", names(conflict_filtrados)[(which(names(conflict_filtrados) == "2016") + 1):ncol(conflict_filtrados)])]
+conflict_filtrados <- conflict_filtrados[, -ncol(conflict_filtrados)]
+
+PRIO_Armed_Conflicts <- conflict_filtrados
+
+PRIO_Armed_Conflicts
+
+```
+
+#### 1.2.3 Non-State Violence - UCDP/PRIO
+
+```{r}
+
+Nonstate_v24_1 <- read_excel("Nonstate_v24_1.xlsx")
+
+non_state_filtrados <- Nonstate_v24_1[Nonstate_v24_1$location %in% paises_de_estudio, ]
+
+non_state_filtrados <- non_state_filtrados[non_state_filtrados$year >= 1990 & non_state_filtrados$year <= 2020, ]
+
+non_state_filtrados <- non_state_filtrados %>%
+  group_by(location, year) %>%
+  summarise(conflict_count = n()) %>%
+  ungroup() %>%
+  pivot_wider(names_from = year, values_from = conflict_count, values_fill = 0) |>
+    rename(Country = location) %>%
+  mutate(across(-Country, as.double)) 
+
+non_state_filtrados_columnas_ordenadas <- c("Country", sort(as.numeric(names(non_state_filtrados)[-1])))
+
+non_state_filtrados <- non_state_filtrados[, non_state_filtrados_columnas_ordenadas]
+
+# Crear las columnas "1992" y "1996" con valores de 0 o NA en funcion de si decimos que no hay registros porque no hay eventos, o si decimos que no hay registros simplemente
+
+non_state_filtrados$`1992` <- NA
+non_state_filtrados$`1996` <- NA
+
+non_state_filtrados <- non_state_filtrados[, c(names(non_state_filtrados)[1:which(names(non_state_filtrados) == "1991")], 
+                                               "1992", 
+                                               names(non_state_filtrados)[(which(names(non_state_filtrados) == "1991") + 1):which(names(non_state_filtrados) == "1995")], 
+                                               "1996", 
+                                               names(non_state_filtrados)[(which(names(non_state_filtrados) == "1995") + 1):ncol(non_state_filtrados)])]
+
+non_state_filtrados <- non_state_filtrados[, -((ncol(non_state_filtrados)-1):ncol(non_state_filtrados))]
+
+PRIO_Non_State_Conflicts <- non_state_filtrados
+
+PRIO_Non_State_Conflicts
+
+```
+
+#### 1.2.4 Deadly Electoral Events - UCDP / PRIO
+
+```{r}
+
+DECO_v_1_0 <- read_excel("DECO_v.1.0.xlsx")
+
+DECO_v_1_0_filtrados <- DECO_v_1_0[DECO_v_1_0$country %in% paises_de_estudio, ]
+
+DECO_v_1_0_filtrados <- DECO_v_1_0_filtrados[DECO_v_1_0_filtrados$year >= 1990 & DECO_v_1_0_filtrados$year <= 2020, ]
+
+DECO_v_1_0_filtrados <- DECO_v_1_0_filtrados %>%
+  group_by(country, year) %>%
+  summarise(conflict_count = n()) %>%
+  ungroup() |>
+  pivot_wider(names_from = year, values_from = conflict_count, values_fill = 0) |>
+    rename(Country = country) %>%
+  mutate(across(-Country, as.double)) 
+
+DECO_columnas_ordenadas <- c("Country", sort(as.numeric(names(DECO_v_1_0_filtrados)[-1])))
+
+DECO_v_1_0_filtrados <- DECO_v_1_0_filtrados[, DECO_columnas_ordenadas]
+
+# Entendemos que no aparecen en el dataset porque hay 0 registro
+DECO_v_1_0_filtrados$`1999` <- 0
+DECO_v_1_0_filtrados$`2005` <- 0
+
+# Los registros para estos años no se incluyen en el dataset, pero no podemos asegurar que sean 0 porque escapan al tiempo de estudio de la base de datos, por tanto NA
+DECO_v_1_0_filtrados$`2018` <- NA
+DECO_v_1_0_filtrados$`2019` <- NA
+DECO_v_1_0_filtrados$`2020` <- NA
+
+DECO_v_1_0_filtrados <- DECO_v_1_0_filtrados[, c(names(DECO_v_1_0_filtrados)[1:which(names(DECO_v_1_0_filtrados) == "1998")], 
+                                                 "1999", 
+                                                 names(DECO_v_1_0_filtrados)[(which(names(DECO_v_1_0_filtrados) == "1998") + 1):which(names(DECO_v_1_0_filtrados) == "2004")], 
+                                                 "2005", 
+                                                 names(DECO_v_1_0_filtrados)[(which(names(DECO_v_1_0_filtrados) == "2004") + 1):which(names(DECO_v_1_0_filtrados) == "2017")], 
+                                                 "2018", 
+                                                 "2019", 
+                                                 "2020",
+                                                 names(DECO_v_1_0_filtrados)[(which(names(DECO_v_1_0_filtrados) == "2017") + 1):ncol(DECO_v_1_0_filtrados)])]
+
+DECO_v_1_0_filtrados <- DECO_v_1_0_filtrados[, -((ncol(DECO_v_1_0_filtrados)-4):ncol(DECO_v_1_0_filtrados))]
+
+PRIO_Deadly_Electoral_Events <- DECO_v_1_0_filtrados
+
+PRIO_Deadly_Electoral_Events
+
+```
+
+#### 1.2.5 Firearm Homicides - OEA
+
+```{r}
+
+armas_argentina <- read_excel("Export (1).xls")
+armas_belize <- read_excel("Export (2).xls")
+armas_bolivia <- read_excel("Export (3).xls")
+armas_brasil <- read_excel("Export (4).xls")
+armas_chile <- read_excel("Export (5).xls")
+armas_colombia <- read_excel("Export (6).xls")
+armas_costarica <- read_excel("Export (7).xls")
+armas_ecuador <- read_excel("Export (8).xls")
+armas_elsalvador <- read_excel("Export (9).xls")
+armas_guatemala <- read_excel("Export (10).xls")
+armas_guyana <- read_excel("Export (11).xls")
+armas_honduras <- read_excel("Export (12).xls")
+armas_mexico <- read_excel("Export (13).xls")
+armas_nicaragua <- read_excel("Export (14).xls")
+armas_paraguay <- read_excel("Export (15).xls")
+armas_peru <- read_excel("Export (16).xls")
+armas_uruguay <- read_excel("Export (17).xls")
+armas_venezuela <- read_excel("Export (18).xls")
+
+armas_argentina <- armas_argentina %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_belize <- armas_belize %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_bolivia <- armas_bolivia %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_brasil <- armas_brasil %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value) |>
+  mutate(Country = if_else(Country == "Brasil", "Brazil", Country))
+
+armas_chile <- armas_chile %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_colombia <- armas_colombia %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_costarica <- armas_costarica %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_ecuador <- armas_ecuador %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_elsalvador <- armas_elsalvador %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_guatemala <- armas_guatemala %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_guyana <- armas_guyana %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value) |>
+  mutate(Country = if_else(Country == "Guyana", "French Guyana", Country))
+
+armas_honduras <- armas_honduras %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_mexico <- armas_mexico %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value) |>
+  mutate(Country = if_else(Country == "México", "Mexico", Country))
+
+armas_nicaragua <- armas_nicaragua %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_paraguay <- armas_paraguay %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_peru <- armas_peru %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value) |>
+  mutate(Country = if_else(Country == "Perú", "Peru", Country))
+
+armas_uruguay <- armas_uruguay %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_venezuela <- armas_venezuela %>%
+  dplyr::select(-Category, -Indicator) %>%
+  pivot_wider(names_from = Year, values_from = Value)
+
+armas_LATAM <- bind_rows(
+  armas_argentina,
+  armas_bolivia,
+  armas_brasil,
+  armas_chile,
+  armas_colombia,
+  armas_ecuador,
+  armas_elsalvador,
+  armas_guatemala,
+  armas_guyana,
+  armas_mexico,
+  armas_nicaragua,
+  armas_paraguay,
+  armas_peru,
+  armas_uruguay,
+  armas_venezuela
+)
+
+armas_LATAM <- armas_LATAM[, -((ncol(armas_LATAM)-1):ncol(armas_LATAM))] |>
+  arrange(Country)
+
+armas_LATAM
+
+```
+
+Lo datos estan en proporción por cada 100.000 habitantes, por lo que utilizados datos sobre la evolución de la población mundial para convertir las proporciones a cifras exactas reales
+
+```{r}
+
+population <- read_excel("population-and-demography.xlsx")
+
+paises_de_estudio_2 <- c("Argentina", "Bolivia", "Brazil", "Chile", "Colombia",
+"Ecuador", "El Salvador", "Guatemala", "French Guiana", "Mexico", "Nicaragua", "Paraguay", "Peru", "Uruguay", "Venezuela")
+
+# uso tidyverse en lugar de dplyr por fallos
+
+population_filtered <- population %>%
+  filter(Entity %in% paises_de_estudio_2)
+
+colnames(population_filtered)[colnames(population_filtered) == "Entity"] <- "Country"
+colnames(population_filtered)[colnames(population_filtered) == "Population - Sex: all - Age: all - Variant: estimates"] <- "Population"
+
+population_filtered <- population_filtered[, c("Country", "Year", "Population")]
+
+population_filtered <- population_filtered %>%
+  pivot_wider(names_from = Year, values_from = Population)
+
+columns_of_interest <- c("Country", as.character(2000:2020))
+population_filtered <- population_filtered[, columns_of_interest, drop = FALSE]
+
+population_filtered$Country <- ifelse(population_filtered$Country == "French Guiana", "French Guyana", population_filtered$Country)
+
+population_filtered
+
+```
+
+Unimos ambos tibbles y mostramos el resultado final: Número total de homicidios intencionados con armas de fuego por país/año
+
+```{r}
+
+armas_long <- armas_LATAM %>%
+  pivot_longer(cols = -Country, names_to = "Year", values_to = "Value") %>%
+  mutate(Year = as.numeric(Year))
+
+population_final <- population_filtered %>%
+  pivot_longer(cols = -Country, names_to = "Year", values_to = "Population") %>%
+  mutate(Year = as.numeric(Year))
+
+armas_merged <- armas_long %>%
+  left_join(population_final, by = c("Country", "Year"))
+
+armas_final <- armas_merged %>%
+  mutate(RealValue = round((Value * Population) / 100000)) %>%
+  dplyr::select(Country, Year, RealValue)
+
+armas_final <- armas_final %>%
+  pivot_wider(names_from = Year, values_from = RealValue)
+
+OAS_Firearm_Homicides <- armas_final
+
+OAS_Firearm_Homicides
+
+```
+
+#### 1.2.6 Journalists Killed - CPJ
+
+```{r}
+
+press_killed <- read_excel("Journalists-Killed-between-1992-and-2024.xlsx")
+
+press_killed <- press_killed |>
+  dplyr::select(country, year, fullName) %>%
+  filter(country %in% paises_de_estudio, year >= 1990, year <= 2020) |>
+  count(country, year) %>%
+  pivot_wider(names_from = year, values_from = n, values_fill = list(n = 0)) |>
+  rename(Country = country)
+
+press_killed$`1990` <- NA
+press_killed$`1991` <- NA
+
+press_killed <- press_killed %>%
+  dplyr::select(Country, order(as.numeric(names(press_killed)[-1])) + 1)
+ 
+CPJ_Journalists_Killed <- press_killed
+
+CPJ_Journalists_Killed
+
+```
+
+#### 1.2.7 Politicians Killed - GI
+
+```{r}
+
+politicians_killed <- read_excel("global-assassination-monitor-cases_dataset.xlsx") 
+politicians_killed <- politicians_killed |>
+  dplyr::select(COUNTRY, YEAR)|>
+  filter(COUNTRY %in% paises_de_estudio) %>%
+  group_by(COUNTRY, YEAR) %>%
+  summarise(count = n()) %>%
+  pivot_wider(names_from = YEAR, values_from = count, values_fill = list(count = 0)) |>
+  rename(Country = COUNTRY)
+
+GI_Politicians_Killed <- politicians_killed
+
+GI_Politicians_Killed
+
+```
+
+#### 1.2.8 Lynchings - LYLA / PRIO
+
+```{r}
+
+linchamientos <- read_excel("LYLA 2022-9-21.xlsx")
+
+linchamientos <- linchamientos |>
+  dplyr::select(name_0, ly_yr) |>
+  filter(name_0 %in% paises_de_estudio) |>
+  count(name_0, ly_yr) %>% 
+  pivot_wider(names_from = ly_yr, values_from = n, values_fill = list(n = 0))|>
+  rename(Country = name_0) |>
+  mutate(across(-Country, as.double))
+
+linchamientos <- linchamientos |> dplyr::select(Country, sort(names(linchamientos)[-1]))
+
+linchamientos <- linchamientos[, -((ncol(linchamientos)-1):ncol(linchamientos))]
+
+LYLA_Lynchings <- linchamientos
+
+LYLA_Lynchings
+
+```
+
+## 2. Previo al modelado
+
+El objetivo es construir modelos para cada cruce de variables dependientes e independientes:
+
+-   **Variables Dependientes:**
+
+    -   Armed Conflicts - PRIO
+
+    -   Non-State Conflicts - PRIO
+
+    -   Deadly Electoral Events- PRIO
+
+    -   Political Events - ACLED
+
+    -   Journalists Killed - CPJ
+
+    -   Politicians Killed - GI
+
+    -   Firearm Homicides - OEA
+
+    -   Lynchings - LYLA
+
+-   **Variables Independientes:**
+
+    -   Major Arms - SIPRI
+
+    -   Small Arms - UNROCA
+
+### 2.1. Conversion a formato largo
+
+#### 2.1.1 Major Arms - UCDP / SIPRI
+
+```{r}
+
+SIPRI_Major_Arms_long <- Volume_of_imports_of_major_arms %>%
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Major_Arms") %>%
+  mutate(Year = as.numeric(Year))
+
+SIPRI_Major_Arms_long
+
+```
+
+#### 2.1.2 Small Arms - UNROCA
+
+```{r}
+
+UNROCA_Small_Arms_long <- small_arms_unroca %>%
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Small_Arms") %>%
+  mutate(Year = as.numeric(Year))
+
+UNROCA_Small_Arms_long
+
+```
+
+#### 2.1.3 Political Events - ACLED
+
+```{r}
+
+ACLED_Political_Events_long <- ACLED_Political_events %>%
+ pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Political_Events") %>%
+  mutate(Year = as.numeric(Year))
+
+ACLED_Political_Events_long
+
+```
+
+#### 2.1.4 Armed Conflicts - UCDP / PRIO
+
+```{r}
+
+PRIO_Armed_Conflicts_long <- PRIO_Armed_Conflicts %>%
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Armed_Conflict") %>%
+  mutate(Year = as.numeric(Year))
+
+PRIO_Armed_Conflicts_long
+
+```
+
+#### 2.1.5 Non-State Conflict - UCDP / PRIO
+
+```{r}
+
+PRIO_Non_State_Conflicts_long <- PRIO_Non_State_Conflicts %>%
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Non_State_Violence") %>%
+  mutate(Year = as.numeric(Year))
+
+PRIO_Non_State_Conflicts_long
+
+```
+
+#### 2.1.6 Deadly Electoral Events - UCDP / PRIO
+
+```{r}
+
+PRIO_Deadly_Electoral_Events_long <- PRIO_Deadly_Electoral_Events %>%
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Deadly_Electoral_Events") %>%
+  mutate(Year = as.numeric(Year))
+
+PRIO_Deadly_Electoral_Events_long
+
+```
+
+#### 2.1.7 Firearm Homicides - OEA
+
+```{r}
+
+OAS_Firearm_Homicides_long <- OAS_Firearm_Homicides %>%
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Firearm_Homicide") %>%
+  mutate(Year = as.numeric(Year))
+
+OAS_Firearm_Homicides_long
+
+```
+
+#### 2.1.8 Journalists Killed - CPJ
+
+```{r}
+
+CPJ_Journalists_Killed_long <- CPJ_Journalists_Killed %>%
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Journalists_Killed") %>%
+  mutate(Year = as.numeric(Year))
+
+CPJ_Journalists_Killed_long
+
+```
+
+#### 2.1.9 Politicians Killed - GI
+
+```{r}
+
+GI_Politicians_Killed_long <- GI_Politicians_Killed |>
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Politicians_Killed") %>%
+  mutate(Year = as.numeric(Year))
+
+GI_Politicians_Killed_long <- as_tibble(GI_Politicians_Killed_long)
+
+GI_Politicians_Killed_long
+
+```
+
+#### 2.1.10 Lynchings - LYLA / PRIO
+
+```{r}
+
+LYLA_Lynchings_long <- LYLA_Lynchings %>%
+  pivot_longer(cols = starts_with("19") | starts_with("20"), 
+               names_to = "Year", values_to = "Lynchings") %>%
+  mutate(Year = as.numeric(Year))
+
+LYLA_Lynchings_long
+
+```
+
+### 2.2 Unir Dataframes
+
+```{r}
+
+final_data <- SIPRI_Major_Arms_long %>%
+  left_join(UNROCA_Small_Arms_long, by = c("Country", "Year")) %>%
+  left_join(ACLED_Political_Events_long, by = c("Country", "Year")) |>
+  left_join(PRIO_Armed_Conflicts_long, by = c("Country", "Year")) %>%
+  left_join(PRIO_Non_State_Conflicts_long, by = c("Country", "Year")) %>%
+  left_join(PRIO_Deadly_Electoral_Events_long, by = c("Country", "Year")) %>%
+  left_join(OAS_Firearm_Homicides_long, by = c("Country", "Year")) %>%
+  left_join(CPJ_Journalists_Killed_long, by = c("Country", "Year")) %>%
+  left_join(GI_Politicians_Killed_long, by = c("Country", "Year")) %>%
+  left_join(LYLA_Lynchings_long, by = c("Country", "Year"))
+
+final_data
+
+str(final_data)
+
+```
+
+## 3. Modelado
+
+Determinar si los datos de conteo (Armed Conflicts, Non-State Conflicts, Firearm Homicides, Lynchings, Politicians Killed) son adecuados para Poisson o, si tienen sobredispersión, lo son para Binomial Negativa.
+
+Determinar si, para Armed Conflict y Non-State Conflict, es más apropiado usar modelos de efectos fijos o aleatorios para hacer series temporales. Usar prueba de Hausman, etc
+
+Para los modelos binarios (Deadly Electoral Events y Journalists Killed) usar la prueba de bondad de ajuste de Hosmer-Lemeshow, Wald, etc
+
+### 3.1 Variables Binarias
+
+```{r}
+
+final_data$Deadly_Electoral_Events_Binary <- ifelse(final_data$Deadly_Electoral_Events > 0, 1, 0)
+
+final_data$Journalists_Killed_Binary <- ifelse(final_data$Journalists_Killed > 0, 1, 0)
+
+final_data_panel <- pdata.frame(final_data, index = c("Country", "Year"))
+
+head(final_data_panel)
+
+```
+
+### 3.2 Modelos de conteo - Violencia General: Homicidios, linchamientos
+
+#### 3.2.1 Firearm Homicide
+
+```{r}
+
+poisson_model_Firearm_Homicide <- glm(Firearm_Homicide ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                         data = final_data, family = poisson)
+
+summary(poisson_model_Firearm_Homicide)  
+  
+dispersion_test_Firearm_Homicide <- dispersiontest(poisson_model_Firearm_Homicide)
+
+print(dispersion_test_Firearm_Homicide)  
+
+negbin_model_Firearm_Homicide <- glm.nb(Firearm_Homicide ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                           data = final_data)
+
+lr_test_Firearm_Homicide <- lrtest(poisson_model_Firearm_Homicide, negbin_model_Firearm_Homicide)
+
+print(lr_test_Firearm_Homicide) 
+
+summary(negbin_model_Firearm_Homicide)
+
+```
+
+Coeficientes para Firearms Homicides as Neg BIn
+
+```{r}
+
+exp(coef(negbin_model_Firearm_Homicide))
+
+```
+
+#### 3.2.2 Lynchings
+
+```{r}
+
+poisson_model_lynchings <- glm(Lynchings ~ log(Major_Arms + 1) + log(Small_Arms + 1),                                 
+                               data = final_data, family = poisson)
+
+dispersion_test_lynchings <- dispersiontest(poisson_model_lynchings)
+
+print(dispersion_test_lynchings) 
+
+negbin_model_lynchings <- glm.nb(Lynchings ~ log(Major_Arms + 1) + log(Small_Arms + 1), data = final_data)
+
+lr_test_lynchings <- lrtest(poisson_model_lynchings, negbin_model_lynchings)
+
+print(lr_test_lynchings) 
+
+summary(negbin_model_lynchings)
+
+```
+
+Coeficientes para Lyinching as Neg Bin
+
+```{r}
+
+exp(coef(negbin_model_lynchings))
+
+```
+
+### 3.3 Modelos de efectos aleatorios y fijos - Violencia Estatal y No Estatal: Armed Conflicts y Non-State Conflicts
+
+#### 3.3.1. Armed Conflicts
+
+```{r}
+
+random_model_armed_conflict <- plm(Armed_Conflict ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                     data = final_data_panel, model = "random")
+
+fixed_model_armed_conflict <- plm(Armed_Conflict ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                    data = final_data_panel, model = "within")
+
+hausman_test_armed_conflict <- phtest(fixed_model_armed_conflict, random_model_armed_conflict)
+
+print(hausman_test_armed_conflict)  
+
+summary(random_model_armed_conflict) 
+
+```
+
+#### 3.3.1. Coeficientes para Armed Conflicts as Random
+
+```{r}
+
+exp(coef(random_model_armed_conflict))
+
+```
+
+#### 3.3.1.1 Armed Conflicts como variable de conteo
+
+```{r}
+
+poisson_model_armed_conflict <- glm(Armed_Conflict ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                      data = final_data, family = poisson)
+
+dispersion_test_armed_conflict <- dispersiontest(poisson_model_armed_conflict)
+
+print(dispersion_test_armed_conflict) 
+
+summary(poisson_model_armed_conflict) 
+
+```
+
+#### 3.3.1.1 Coeficientes para Armed Conflicts as Poisson
+
+```{r}
+
+exp(coef(poisson_model_armed_conflict))
+
+```
+
+#### 3.3.2 Non State Conflicts
+
+```{r}
+
+random_model_non_state <- plm(Non_State_Violence ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                data = final_data_panel, model = "random")
+
+fixed_model_non_state <- plm(Non_State_Violence ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                               data = final_data_panel, model = "within")
+
+hausman_test_non_state <- phtest(fixed_model_non_state, random_model_non_state)
+
+print(hausman_test_non_state)  
+
+summary(random_model_non_state)
+
+```
+
+#### 3.3.2.1 Coeficientes para Non-State Conflicts as random
+
+```{r}
+
+exp(coef(random_model_non_state))
+
+```
+
+#### 3.3.2 Non-State Conflicts como variable de conteo
+
+```{r}
+
+poisson_model_non_state <- glm(Non_State_Violence ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                 data = final_data, family = poisson)
+
+dispersion_test_non_state <- dispersiontest(poisson_model_non_state)
+
+print(dispersion_test_non_state)
+
+negbin_model_non_state <- glm.nb(Non_State_Violence ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                   data = final_data) 
+
+lr_test_non_state <- lrtest(poisson_model_non_state, negbin_model_non_state)
+
+print(lr_test_non_state) 
+
+summary(negbin_model_non_state)
+
+```
+
+#### 3.3.2.1 Coeficientes para Non-State Conflicts
+
+```{r}
+
+exp(coef(negbin_model_non_state))
+
+```
+
+### 3.4 Modelos Logísticos - Violencia Política: Political Events, Deadly Electoral Events, Journalists Killed y Politicians Killed
+
+#### 3.4.1 Deadly Electoral Eventsas Binary
+
+```{r}
+
+logit_model_deadly_electoral <- glm(Deadly_Electoral_Events_Binary ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings, 
+                                    data = final_data, family = binomial)
+deviance <- logit_model_deadly_electoral$deviance
+df_resid <- logit_model_deadly_electoral$df.residual
+
+p_value_deviance <- 1 - pchisq(deviance, df_resid)
+p_value_deviance
+
+wald.test(b = coef(logit_model_deadly_electoral), Sigma = vcov(logit_model_deadly_electoral), Terms = 2:length(coef(logit_model_deadly_electoral)))
+
+summary(logit_model_deadly_electoral)
+
+```
+
+#### 3.4.1 Coeficientes para Deadly Electoral Conflicts as Binary
+
+```{r}
+
+exp(coef(logit_model_deadly_electoral))
+
+```
+
+#### 3.5. Deadly Electoral Events
+
+```{r}
+
+random_model_deadly_electoral <- plm(Deadly_Electoral_Events ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                       data = final_data_panel, model = "random")
+
+fixed_model_deadly_electoral <- plm(Deadly_Electoral_Events ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                                      data = final_data_panel, model = "within")
+
+hausman_test_deadly_electoral <- phtest(fixed_model_deadly_electoral, random_model_deadly_electoral)
+
+print(hausman_test_deadly_electoral)  
+
+summary(random_model_deadly_electoral)
+
+```
+
+#### 3.5.. 1 Coeficientes para Deadly Electoral Events as Random
+
+```{r}
+
+exp(coef(random_model_deadly_electoral))
+
+```
+
+#### 3.6. Journalists Killed as Binary
+
+```{r}
+
+
+logit_model_journalists_killed <- glm(Journalists_Killed_Binary ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings, 
+                                      data = final_data, family = binomial)
+
+deviance <- logit_model_journalists_killed$deviance
+df_resid <- logit_model_journalists_killed$df.residual
+
+p_value_deviance <- 1 - pchisq(deviance, df_resid)
+p_value_deviance
+
+wald.test(b = coef(logit_model_journalists_killed), 
+          Sigma = vcov(logit_model_journalists_killed), 
+          Terms = 2:length(coef(logit_model_journalists_killed)))
+
+summary(logit_model_journalists_killed)
+
+```
+
+#### 3.6.1 Coeficientes para Journalists Killed as Binary
+
+```{r}
+
+exp(coef(logit_model_journalists_killed))
+
+```
+
+#### 3.7 Politicians Killed
+
+```{r}
+
+GI_Politicians_Killed <- as_tibble(GI_Politicians_Killed)
+
+poisson_model_gi_politicians <- glm(Politicians_Killed ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings, 
+                                    data = final_data, family = poisson)
+
+dispersion_test_gi_politicians <- dispersiontest(poisson_model_gi_politicians)
+
+print(dispersion_test_gi_politicians)
+
+negbin_model_gi_politicians <- glm.nb(Politicians_Killed ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings, 
+                                      data = final_data)
+
+lr_test_gi_politicians <- lrtest(poisson_model_gi_politicians, negbin_model_gi_politicians)
+
+print(lr_test_gi_politicians)
+
+summary(negbin_model_gi_politicians)
+
+```
+
+#### 3.7.1 Coeficientes para Politicians Killed
+
+```{r}
+
+exp(coef(negbin_model_gi_politicians))
+
+```
+
+### 3.6 Political Events
+
+```{r}
+
+final_data_ACLED <- final_data %>%   
+  filter(Year >= 2018 & Year <= 2020)
+
+poisson_model_acled <- glm(Political_Events ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                            data = final_data_ACLED, family = poisson)
+
+dispersion_test_acled <- dispersiontest(poisson_model_acled)
+
+print(dispersion_test_acled)
+
+negbin_model_acled <- glm.nb(Political_Events ~ log(Major_Arms + 1) + log(Small_Arms + 1) + Lynchings,                              data = final_data_ACLED)
+
+
+lr_test_acled <- lrtest(poisson_model_acled, negbin_model_acled)
+
+print(lr_test_acled) 
+
+summary(negbin_model_acled)
+
+```
+
+#### 3.6.1 Coeficientes para Political Events
+
+```{r}
+
+exp(coef(negbin_model_acled))
+
+```
+
+## 4. Gráficas
+
+```{r}
+
+data.graphics <- data.frame(
+  Variable_Dependiente = c("Firearm Homicides", "Lynchings", "Armed Conflicts", 
+                           "Non-State Conflicts", "Political Events", "Deadly Electoral Events", 
+                           "Journalists Killed", "Politicians Killed"),
+  Major_Arms = c(1.674322, 1.059879, 1.0758477, 1.4303096, 2.1480569, 1.51709125, 2.30727437, 1.8319250),
+  Small_Arms = c(1.057475, 1.273150, 0.9359766, 1.1322211, 0.9898447, 1.00487220, 0.92587390, 0.9440187)
+)
+
+```
+
+### 4.1 Coeficients
+
+#### 4.1.1 Major Arms Coeficients
+
+```{r}
+
+ggplot(data.graphics, aes(x = Variable_Dependiente, y = Major_Arms)) +
+  geom_bar(stat = "identity", fill = "#FF6A6A", color = "black", width = 0.7) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Major Arms effects",
+       subtitle = "Coeficients of log(Major_Arms + 1)",
+       x = "Violence",
+       y = "Coeficients") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+#### 4.1.2 Small arms Coeficient
+
+```{r}
+
+ggplot(data.graphics, aes(x = Variable_Dependiente, y = Small_Arms)) +
+  geom_bar(stat = "identity", fill = "#BFEFFF", color = "black", width = 0.7) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Small Arms effects",
+       subtitle = "Coeficients of log(Small_Arms + 1)",
+       x = "Violence",
+       y = "Coeficients") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+#### 4.1.3 Major and Small Arms Coeficients
+
+```{r}
+
+data.graphics_long <- pivot_longer(data.graphics, cols = c("Major_Arms", "Small_Arms"), 
+                          names_to = "Arms_Type", values_to = "Coefficient")
+
+ggplot(data.graphics_long, aes(x = Variable_Dependiente, y = Coefficient, fill = Arms_Type)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", width = 0.7) +
+  scale_fill_manual(values = c("#FF6A6A", "#BFEFFF")) +  # Colores para Major Arms y Small Arms
+  theme_minimal(base_size = 14) +
+  labs(title = "Major Arms & Small Arms effects",
+       subtitle = "Coeficients of log(Major Arms + 1) & log(Small Arms + 1)",
+       x = "Violence",
+       y = "Coeficients") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text = element_text(color = "black"),
+    legend.title = element_blank(),
+    legend.position = "top",
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+### 4.2 Major Arms for each group
+
+```{r}
+
+General_violence <- data.graphics[data.graphics$Variable_Dependiente %in% c("Firearm Homicides", "Lynchings"), ]
+Conflict_Violence <- data.graphics[data.graphics$Variable_Dependiente %in% c("Armed Conflicts", "Non-State Conflicts"), ]
+Political_violence <- data.graphics[data.graphics$Variable_Dependiente %in% c("Political Events", "Deadly Electoral Events", "Journalists Killed", "Politicians Killed"), ]
+
+```
+
+```{r}
+
+ggplot(General_violence, aes(x = Variable_Dependiente, y = Major_Arms)) +
+  geom_bar(stat = "identity", fill = "#66CDAA", color = "black", width = 0.6) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Major Arms - General Violence",
+       subtitle = "Firearm Homicides & Lynchings",
+       x = "General Violence",
+       y = "Coeficients of log(Major Arms + 1)") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+# Major Arms - Conflict violence
+ggplot(Conflict_Violence, aes(x = Variable_Dependiente, y = Major_Arms)) +
+  geom_bar(stat = "identity", fill = "#FF6A6A", color = "black", width = 0.6) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Major Arms - Conflict Violence",
+       subtitle = "Armed Conflicts & Non-State Conflicts",
+       x = "Conflict Violence",
+       y = "Coeficients of log(Major Arms + 1)") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+# Major Arms - Political violence
+ggplot(Political_violence, aes(x = Variable_Dependiente, y = Major_Arms)) +
+  geom_bar(stat = "identity", fill = "#BFEFFF", color = "black", width = 0.6) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Major Arms - Political Violence",
+       subtitle = "Political Events, Deadly Electoral Events, Journalists Killed & Politicians Killed",
+       x = "Political Violence",
+       y = "Coeficients of log(Major Arms + 1)") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+### 4.3 Small Arms for each group
+
+```{r}
+
+# Small Arms - General violence
+ggplot(General_violence, aes(x = Variable_Dependiente, y = Small_Arms)) +
+  geom_bar(stat = "identity", fill = "#66CDAA", color = "black", width = 0.6) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Small Arms - General Violence",
+       subtitle = "Firearm Homicides & Lynchings",
+       x = "General Violence",
+       y = "Coeficients of log(Small_Arms + 1)") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+# Small Arms - Conflict violence
+ggplot(Conflict_Violence, aes(x = Variable_Dependiente, y = Small_Arms)) +
+  geom_bar(stat = "identity", fill = "#FF6A6A", color = "black", width = 0.6) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Small Arms - Conflict Violence",
+       subtitle = "Armed Conflicts & Non-State Conflicts",
+       x = "Conflict Violence",
+       y = "Coeficients of log(Small_Arms + 1)") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+# Small Arms - Political violence
+ggplot(Political_violence, aes(x = Variable_Dependiente, y = Small_Arms)) +
+  geom_bar(stat = "identity", fill = "#BFEFFF", color = "black", width = 0.6) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Small Arms - Political Violence",
+       subtitle = "Political Events, Deadly Electoral Events, Journalists Killed & Politicians Killed",
+       x = "Political Violence",
+       y = "Coeficients of log(Small_Arms + 1)") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+### 4.4 Major Arms by groups
+
+```{r}
+
+data.graphics.grouped <- data.frame(
+  Variable_Dependiente = c("Firearm Homicides", "Lynchings", "Armed Conflicts", 
+                           "Non-State Conflicts", "Political Events", "Deadly Electoral Events", 
+                           "Journalists Killed", "Politicians Killed"),
+  Major_Arms = c(1.674322, 1.059879, 1.0758477, 1.4303096, 2.1480569, 1.51709125, 2.30727437, 1.8319250),
+  Small_Arms = c(1.057475, 1.273150, 0.9359766, 1.1322211, 0.9898447, 1.00487220, 0.92587390, 0.9440187),
+  Group = c("General violence", "General violence", 
+            "Conflict Violence", "Conflict Violence", 
+            "Political violence", "Political violence", 
+            "Political violence", "Political violence")
+)
+
+data.graphics.grouped$Group <- factor(data.graphics.grouped$Group, 
+                                      levels = c("General violence", "Conflict Violence", "Political violence"))
+
+data.graphics.grouped$Variable_Dependiente <- factor(data.graphics.grouped$Variable_Dependiente, 
+                                                     levels = data.graphics.grouped$Variable_Dependiente[order(data.graphics.grouped$Group)])
+
+ggplot(data.graphics.grouped, aes(x = Variable_Dependiente, y = Major_Arms, fill = Group)) +
+  geom_bar(stat = "identity", color = "black", width = 0.7, position = position_dodge()) +
+  scale_fill_manual(values = c("General violence" = "#66CDAA", "Conflict Violence" = "#FF6A6A", "Political violence" = "#BFEFFF")) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Major Arms by Groups",
+       subtitle = "Coeficients of log(Major_Arms + 1)",
+       x = "Violence",
+       y = "Coeficients") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank(),
+    legend.position = "top"
+  )
+
+```
+
+### 4.5 Small Arms by groups
+
+```{r}
+
+data.graphics.grouped <- data.frame(
+  Variable_Dependiente = c("Firearm Homicides", "Lynchings", "Armed Conflicts", 
+                           "Non-State Conflicts", "Political Events", "Deadly Electoral Events", 
+                           "Journalists Killed", "Politicians Killed"),
+  Major_Arms = c(1.674322, 1.059879, 1.0758477, 1.4303096, 2.1480569, 1.51709125, 2.30727437, 1.8319250),
+  Small_Arms = c(1.057475, 1.273150, 0.9359766, 1.1322211, 0.9898447, 1.00487220, 0.92587390, 0.9440187),
+  Group = c("General violence", "General violence", 
+            "Conflict Violence", "Conflict Violence", 
+            "Political violence", "Political violence", 
+            "Political violence", "Political violence")
+)
+
+data.graphics.grouped$Group <- factor(data.graphics.grouped$Group, 
+                                      levels = c("General violence", "Conflict Violence", "Political violence"))
+
+data.graphics.grouped$Variable_Dependiente <- factor(data.graphics.grouped$Variable_Dependiente, 
+                                                     levels = data.graphics.grouped$Variable_Dependiente[order(data.graphics.grouped$Group)])
+
+ggplot(data.graphics.grouped, aes(x = Variable_Dependiente, y = Small_Arms, fill = Group)) +
+  geom_bar(stat = "identity", color = "black", width = 0.7, position = position_dodge()) +
+  scale_fill_manual(values = c("General violence" = "#66CDAA", "Conflict Violence" = "#FF6A6A", "Political violence" = "#BFEFFF")) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Small Arms by Groups",
+       subtitle = "Coeficients of log(Small_Arms + 1)",
+       x = "Violence",
+       y = "Coeficients") +
+  ylim(0, 3) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.grid.minor = element_blank(),
+    legend.position = "top"
+  )
+
+```
+
+## 5. Estimates of the independent variables on the dependent variables
+
+```{r}
+
+add_significance_stars <- function(p_value) {
+  if (p_value < 0.01) {
+    return("***")
+  } else if (p_value < 0.05) {
+    return("**")
+  } else if (p_value < 0.1) {
+    return("*")
+  } else {
+    return("")
+  }
+}
+
+models <- list(
+  "Firearm Homicide" = negbin_model_Firearm_Homicide,
+  "Lynchings" = negbin_model_lynchings,
+  "Armed Conflicts" = poisson_model_armed_conflict,
+  "Non-State Conflicts" = negbin_model_non_state,
+  "Deadly Electoral Events" = logit_model_deadly_electoral,
+  "Journalists Killed" = logit_model_journalists_killed,
+  "Politicians Killed" = negbin_model_gi_politicians,
+  "ACLED" = negbin_model_acled
+)
+
+combined_results <- data.frame()
+
+for (model_name in names(models)) {
+  tidy_result <- tidy(models[[model_name]])
+  tidy_result$term <- ifelse(tidy_result$term == "(Intercept)", "Constant", tidy_result$term)
+  
+  tidy_result$Estimate <- paste0(sprintf("%.3f", tidy_result$estimate), sapply(tidy_result$p.value, add_significance_stars))
+  tidy_result$StdError <- sprintf("(%.3f)", tidy_result$std.error)
+  
+  tidy_result <- tidy_result[, c("term", "Estimate", "StdError")]
+  
+  colnames(tidy_result) <- c("Variable", paste(model_name, c("Estimate", "StdError"), sep = "_"))
+  
+  if (nrow(combined_results) == 0) {
+    combined_results <- tidy_result
+  } else {
+    combined_results <- merge(combined_results, tidy_result, by = "Variable", all = TRUE)
+  }
+}
+
+combined_results
+
+```
